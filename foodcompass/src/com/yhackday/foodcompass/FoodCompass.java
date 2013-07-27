@@ -1,12 +1,21 @@
+/*
+ * Reference: http://sunil-android.blogspot.com/2013/02/create-our-android-compass.html
+ */
+
 package com.yhackday.foodcompass;
 
 import com.yhackday.foodcompass.util.SystemUiHider;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -16,147 +25,108 @@ import android.view.View;
  * 
  * @see SystemUiHider
  */
-public class FoodCompass extends Activity {
-	/**
-	 * Whether or not the system UI should be auto-hidden after
-	 * {@link #AUTO_HIDE_DELAY_MILLIS} milliseconds.
-	 */
-	private static final boolean AUTO_HIDE = true;
+public class FoodCompass extends Activity 
+		implements SensorEventListener{
+	
+	private static final int AZIMUTH = 0;
+	private static final int PITCH = 1;
+	private static final int ROLL = 2;
 
-	/**
-	 * If {@link #AUTO_HIDE} is set, the number of milliseconds to wait after
-	 * user interaction before hiding the system UI.
-	 */
-	private static final int AUTO_HIDE_DELAY_MILLIS = 3000;
-
-	/**
-	 * If set, will toggle the system UI visibility upon interaction. Otherwise,
-	 * will show the system UI visibility upon interaction.
-	 */
-	private static final boolean TOGGLE_ON_CLICK = true;
-
-	/**
-	 * The flags to pass to {@link SystemUiHider#getInstance}.
-	 */
-	private static final int HIDER_FLAGS = SystemUiHider.FLAG_HIDE_NAVIGATION;
-
-	/**
-	 * The instance of the {@link SystemUiHider} for this activity.
-	 */
 	private SystemUiHider mSystemUiHider;
+	
+	private SensorManager sensorManager;
+	private Sensor sensorAccelerometer;
+	private Sensor sensorMagneticField;
+	
+	private float[] valuesAccelerometer;
+	private float[] valuesMagneticField;
+	
+	private float[] matrixR;
+	private float[] matrixI;
+	private float[] matrixValues;
+	
+	private Compass compass;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
-
-		setContentView(R.layout.food_compass_layout);
-
-		final View controlsView = findViewById(R.id.fullscreen_content_controls);
-		final View contentView = findViewById(R.id.fullscreen_content);
-
-		// Set up an instance of SystemUiHider to control the system UI for
-		// this activity.
-		mSystemUiHider = SystemUiHider.getInstance(this, contentView,
-				HIDER_FLAGS);
-		mSystemUiHider.setup();
-		mSystemUiHider
-				.setOnVisibilityChangeListener(new SystemUiHider.OnVisibilityChangeListener() {
-					// Cached values.
-					int mControlsHeight;
-					int mShortAnimTime;
-
-					@Override
-					@TargetApi(Build.VERSION_CODES.HONEYCOMB_MR2)
-					public void onVisibilityChange(boolean visible) {
-						if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR2) {
-							// If the ViewPropertyAnimator API is available
-							// (Honeycomb MR2 and later), use it to animate the
-							// in-layout UI controls at the bottom of the
-							// screen.
-							if (mControlsHeight == 0) {
-								mControlsHeight = controlsView.getHeight();
-							}
-							if (mShortAnimTime == 0) {
-								mShortAnimTime = getResources().getInteger(
-										android.R.integer.config_shortAnimTime);
-							}
-							controlsView
-									.animate()
-									.translationY(visible ? 0 : mControlsHeight)
-									.setDuration(mShortAnimTime);
-						} else {
-							// If the ViewPropertyAnimator APIs aren't
-							// available, simply show or hide the in-layout UI
-							// controls.
-							controlsView.setVisibility(visible ? View.VISIBLE
-									: View.GONE);
-						}
-
-						if (visible && AUTO_HIDE) {
-							// Schedule a hide().
-							delayedHide(AUTO_HIDE_DELAY_MILLIS);
-						}
-					}
-				});
-
-		// Set up the user interaction to manually show or hide the system UI.
-		contentView.setOnClickListener(new View.OnClickListener() {
-			@Override
-			public void onClick(View view) {
-				if (TOGGLE_ON_CLICK) {
-					mSystemUiHider.toggle();
-				} else {
-					mSystemUiHider.show();
-				}
-			}
-		});
-
-		// Upon interacting with UI controls, delay any scheduled hide()
-		// operations to prevent the jarring behavior of controls going away
-		// while interacting with the UI.
-		findViewById(R.id.dummy_button).setOnTouchListener(
-				mDelayHideTouchListener);
+		setContentView(R.layout.main_layout);
+		
+		this.compass = (Compass) findViewById(R.id.compass_view);
+		
+		this.sensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
+		this.sensorAccelerometer = this.sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+		this.sensorMagneticField = this.sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+		
+		this.valuesAccelerometer = new float[3];
+		this.valuesMagneticField = new float[3];
+		this.matrixR = new float[9];
+		this.matrixI = new float[9];
+		this.matrixValues = new float[3];
+	}
+	
+	@Override
+	protected void onResume() {
+		this.sensorManager.registerListener(
+				this,
+				this.sensorAccelerometer, 
+				SensorManager.SENSOR_DELAY_NORMAL);
+		this.sensorManager.registerListener(
+				this, 
+				this.sensorMagneticField,
+				SensorManager.SENSOR_DELAY_NORMAL);
+		super.onResume();
+		
+	}
+	
+	@Override
+	protected void onPause() {
+		this.sensorManager.unregisterListener(
+				this,
+				this.sensorAccelerometer);
+		this.sensorManager.unregisterListener(
+				this,
+				this.sensorMagneticField);
+		super.onPause();
 	}
 
 	@Override
 	protected void onPostCreate(Bundle savedInstanceState) {
 		super.onPostCreate(savedInstanceState);
-
-		// Trigger the initial hide() shortly after the activity has been
-		// created, to briefly hint to the user that UI controls
-		// are available.
-		delayedHide(100);
 	}
 
-	/**
-	 * Touch listener to use for in-layout UI controls to delay hiding the
-	 * system UI. This is to prevent the jarring behavior of controls going away
-	 * while interacting with activity UI.
-	 */
-	View.OnTouchListener mDelayHideTouchListener = new View.OnTouchListener() {
-		@Override
-		public boolean onTouch(View view, MotionEvent motionEvent) {
-			if (AUTO_HIDE) {
-				delayedHide(AUTO_HIDE_DELAY_MILLIS);
+
+	@Override
+	public void onAccuracyChanged(Sensor sensor, int accuracy) {
+	}
+
+	@Override
+	public void onSensorChanged(SensorEvent event) {
+		switch(event.sensor.getType()) {
+		case Sensor.TYPE_ACCELEROMETER:
+			for(int i=0; i<3; i++) {
+				this.valuesAccelerometer[i] = event.values[i];
 			}
-			return false;
+			break;
+		case Sensor.TYPE_MAGNETIC_FIELD:
+			for(int i=0; i<3; i++) {
+				this.valuesMagneticField[i] = event.values[i];
+			}
+			break;
 		}
-	};
-
-	Handler mHideHandler = new Handler();
-	Runnable mHideRunnable = new Runnable() {
-		@Override
-		public void run() {
-			mSystemUiHider.hide();
+		
+		boolean success = SensorManager.getRotationMatrix(
+				this.matrixR, 
+				this.matrixI, 
+				this.valuesAccelerometer, 
+				this.valuesMagneticField);
+		
+		if(success) {
+			SensorManager.getOrientation(
+					this.matrixR, 
+					this.matrixValues);
+			
+			this.compass.updateDirection(this.matrixValues[AZIMUTH]);
 		}
-	};
-
-	/**
-	 * Schedules a call to hide() in [delay] milliseconds, canceling any
-	 * previously scheduled calls.
-	 */
-	private void delayedHide(int delayMillis) {
-		mHideHandler.removeCallbacks(mHideRunnable);
-		mHideHandler.postDelayed(mHideRunnable, delayMillis);
 	}
 }
