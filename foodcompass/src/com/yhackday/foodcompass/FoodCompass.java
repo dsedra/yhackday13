@@ -4,20 +4,24 @@
 
 package com.yhackday.foodcompass;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesClient;
+import com.google.android.gms.location.LocationClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
 import com.yhackday.foodcompass.util.SystemUiHider;
 
-import android.annotation.TargetApi;
 import android.app.Activity;
+import android.content.IntentSender;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.os.Build;
+import android.location.Location;
+
 import android.os.Bundle;
-import android.os.Handler;
 import android.util.Log;
-import android.view.MotionEvent;
-import android.view.View;
+import android.widget.Toast;
 
 /**
  * An example full-screen activity that shows and hides the system UI (i.e.
@@ -26,11 +30,24 @@ import android.view.View;
  * @see SystemUiHider
  */
 public class FoodCompass extends Activity 
-		implements SensorEventListener{
+		implements SensorEventListener,
+        GooglePlayServicesClient.ConnectionCallbacks,
+        GooglePlayServicesClient.OnConnectionFailedListener,
+        LocationListener {
 	
 	private static final int AZIMUTH = 0;
 	private static final int PITCH = 1;
 	private static final int ROLL = 2;
+	
+	private static final float NORTH_LATITUDE = 90f;
+	private static final float NORTH_LONGITUDE = 0f;
+	
+	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
+	
+    public static final int UPDATE_INTERVAL_IN_SECONDS = 5;
+    private static final long UPDATE_INTERVAL = 1000 * UPDATE_INTERVAL_IN_SECONDS;
+    private static final int FASTEST_INTERVAL_IN_SECONDS = 1;
+    private static final long FASTEST_INTERVAL = 1000 * FASTEST_INTERVAL_IN_SECONDS;
 
 	private SystemUiHider mSystemUiHider;
 	
@@ -46,6 +63,10 @@ public class FoodCompass extends Activity
 	private float[] matrixValues;
 	
 	private Compass compass;
+	
+	private LocationClient locationClient;
+	private LocationRequest locationRequest;
+	private Location currentLocation;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +84,18 @@ public class FoodCompass extends Activity
 		this.matrixR = new float[9];
 		this.matrixI = new float[9];
 		this.matrixValues = new float[3];
+		
+		this.locationClient = new LocationClient(this, this, this);
+		this.locationRequest = LocationRequest.create();
+        this.locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+		this.locationRequest.setInterval(UPDATE_INTERVAL);
+		this.locationRequest.setFastestInterval(FASTEST_INTERVAL);
+	}
+	
+	@Override
+	protected void onStart() {
+		this.locationClient.connect();
+		super.onStart();
 	}
 	
 	@Override
@@ -88,6 +121,12 @@ public class FoodCompass extends Activity
 				this,
 				this.sensorMagneticField);
 		super.onPause();
+	}
+	
+	@Override
+	protected void onStop() {
+		this.locationClient.disconnect();
+		super.onStop();
 	}
 
 	@Override
@@ -126,7 +165,68 @@ public class FoodCompass extends Activity
 					this.matrixR, 
 					this.matrixValues);
 			
-			this.compass.updateDirection(this.matrixValues[AZIMUTH]);
+			if (this.currentLocation != null) {
+				Location northPole = new Location("");
+				northPole.setLatitude(NORTH_LATITUDE);
+				northPole.setLongitude(NORTH_LONGITUDE);
+				
+				float bearing = this.currentLocation.bearingTo(northPole);
+				//this.compass.updateDirection(bearing);
+				this.compass.updateDirection(this.matrixValues[AZIMUTH]);
+				//this.compass.updateDirection(10);
+				
+				Log.d("BEARING", ""+bearing);
+				Log.d("AZIMUTH", ""+this.matrixValues[AZIMUTH]);
+			}
+		}
+		
+		if (this.locationClient.isConnected()) {
+			this.currentLocation = this.locationClient.getLastLocation();
+			if (this.currentLocation != null) {
+				//Log.d("LOCATION",this.currentLocation.toString());
+			}
+			else {
+				Log.d("LOCATION", "NULL");
+			}
+		}
+	}
+
+	@Override
+	public void onConnectionFailed(ConnectionResult result) {
+		if (result.hasResolution()) {
+            try {
+                result.startResolutionForResult(
+                        this,
+                        CONNECTION_FAILURE_RESOLUTION_REQUEST);
+            } catch (IntentSender.SendIntentException e) {
+                e.printStackTrace();
+                Toast.makeText(this, "Connection Failed!", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+        	Toast.makeText(this, "Connection Failed!", Toast.LENGTH_SHORT).show();
+            Log.e("FoodCompass", ""+result.getErrorCode());
+        }
+	}
+
+	@Override
+	public void onConnected(Bundle connectionHint) {
+		Toast.makeText(this, "Connected", Toast.LENGTH_SHORT).show();
+		this.locationClient.requestLocationUpdates(this.locationRequest, this);
+	}
+
+	@Override
+	public void onDisconnected() {
+		Toast.makeText(this, "Disconnected. Please re-connect.", Toast.LENGTH_SHORT).show();
+	}
+
+	@Override
+	public void onLocationChanged(Location location) {
+		if (location != null) {
+			Log.d("LOCATION","Latitude:" + location.getLatitude() + ", Longitude:" + location.getLongitude());
+			this.currentLocation = location;
+		}
+		else {
+			Log.d("LOCATION", "NULL");
 		}
 	}
 }
