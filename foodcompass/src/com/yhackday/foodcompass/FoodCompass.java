@@ -9,7 +9,6 @@ import com.google.android.gms.common.GooglePlayServicesClient;
 import com.google.android.gms.location.LocationClient;
 import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
-import com.yhackday.foodcompass.util.SystemUiHider;
 
 import android.app.Activity;
 import android.content.IntentSender;
@@ -49,8 +48,6 @@ public class FoodCompass extends Activity
     private static final int FASTEST_INTERVAL_IN_SECONDS = 1;
     private static final long FASTEST_INTERVAL = 1000 * FASTEST_INTERVAL_IN_SECONDS;
 
-	private SystemUiHider mSystemUiHider;
-	
 	private SensorManager sensorManager;
 	private Sensor sensorAccelerometer;
 	private Sensor sensorMagneticField;
